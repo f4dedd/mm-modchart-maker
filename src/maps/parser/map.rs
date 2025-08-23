@@ -7,11 +7,12 @@ use std::{
 
 use bevy::math::{Vec2, Vec3};
 
-use crate::maps::parser::io::BinaryReader;
+use crate::maps::parser::io::{BinaryReader, BinaryWriter};
 use crate::maps::{map::Map, objects::note::Note};
 
-pub trait MapParser {
-    fn parse(path: PathBuf) -> io::Result<Map>;
+pub trait MapSerializer {
+    fn deserialize(path: PathBuf) -> io::Result<Map>;
+    fn serialize(map: &Map, path: PathBuf) -> io::Result<()>;
 }
 
 pub trait ObjectParser {
@@ -46,8 +47,23 @@ pub enum ObjectType {
 
 pub struct SSPMParser;
 
-impl MapParser for SSPMParser {
-    fn parse(path: PathBuf) -> io::Result<Map> {
+impl MapSerializer for SSPMParser {
+    fn serialize(map: &Map, path: PathBuf) -> io::Result<()> {
+        let file = File::create(path)?;
+        let mut writer = BinaryWriter::new(file);
+
+        // Header
+        writer.write_all(b"SS+m")?; // File signature
+        writer.write_all(&[0x02, 0x00])?; // Version 2
+        writer.write_all(&[0u8; 4])?; // Unused bytes
+
+        // Static Metadata
+        writer.write_sha1(&[0u8; 20])?; // SHA1 is never used yet so ignore for now
+
+        todo!()
+    }
+
+    fn deserialize(path: PathBuf) -> io::Result<Map> {
         let mut parser = BinaryReader::new(File::open(path)?);
 
         // Header structure:
@@ -73,32 +89,32 @@ impl MapParser for SSPMParser {
             ));
         }
 
-        let _hash = parser.read_sha1()?;
-        let _millisecond = parser.read_u32()?;
-        let _note_count = parser.read_u32()?;
-        let _marker_count = parser.read_u32()?;
+        let _hash = parser.read_sha1()?; // SHA1 hash of the file
+        let _millisecond = parser.read_u32()?; // Last object millisecond
+        let _note_count = parser.read_u32()?; // Note object count
+        let _object_count = parser.read_u32()?; // Total object count ( including notes )
         let _difficulty = parser.read_u8()?;
-        let _star_rating = parser.read_u16()?;
+        let _star_rating = parser.read_u16()?; // never used
 
-        let has_audio = parser.read_bool()?;
-        let has_cover = parser.read_bool()?;
-        let _has_mod = parser.read_bool()?;
+        let has_audio = parser.read_bool()?; // Whether the map has audio data
+        let has_cover = parser.read_bool()?; // Whether the map has cover data
+        let _has_mod = parser.read_bool()?; // never used
 
-        let _custom_data_length = parser.read_u64()?;
-        let _custom_data_offset = parser.read_u64()?;
-        let audio_data_length = parser.read_u64()?;
-        let audio_data_offset = parser.read_u64()?;
-        let cover_data_length = parser.read_u64()?;
-        let cover_data_offset = parser.read_u64()?;
-        let object_definition_offset = parser.read_u64()?;
-        let _object_definition_length = parser.read_u64()?;
-        let object_data_offset = parser.read_u64()?;
-        let object_data_length = parser.read_u64()?;
+        let _custom_data_length = parser.read_u64()?; // never used
+        let _custom_data_offset = parser.read_u64()?; // never used
+        let audio_data_length = parser.read_u64()?; // Length of audio data
+        let audio_data_offset = parser.read_u64()?; // Offset of audio data
+        let cover_data_length = parser.read_u64()?; // Length of cover data
+        let cover_data_offset = parser.read_u64()?; // Offset of cover data
+        let object_definition_offset = parser.read_u64()?; // Offset of object definitions
+        let _object_definition_length = parser.read_u64()?; // Length of object definitions
+        let object_data_offset = parser.read_u64()?; // Offset of object data
+        let object_data_length = parser.read_u64()?; // Length of object data
 
-        let _map_id = parser.read_string()?;
-        let _map_name = parser.read_string()?;
-        let song_name = parser.read_string()?;
-        let mappers_count = parser.read_u16()?;
+        let _map_id = parser.read_string()?; // Id of the map
+        let _map_name = parser.read_string()?; // Name of the map
+        let song_name = parser.read_string()?; // Song name
+        let mappers_count = parser.read_u16()?; // Mappers count
         let mut mappers = Vec::<String>::new();
 
         for _ in 0..mappers_count {
