@@ -16,6 +16,9 @@ use crate::maps::parser::{MapSerializer, SSPMSerializer};
 #[derive(Resource)]
 pub struct MapFolder(pub Handle<LoadedFolder>);
 
+#[derive(Resource)]
+pub struct CurrentMap(pub Handle<Map>);
+
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {

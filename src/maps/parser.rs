@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
-    fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
-    path::PathBuf,
 };
 
-use bevy::math::{Vec2, Vec3, ops::round};
+use bevy::{
+    audio::AudioSource,
+    math::{Vec2, Vec3, ops::round},
+};
 use serde::{Deserialize, Serialize};
-use zip::unstable::stream::ZipStreamReader;
 
 use crate::maps::{Map, objects::Note};
 use crate::maps::{
@@ -92,7 +92,7 @@ impl MapSerializer for SSPMSerializer {
 
         writer.write_u8(map.difficulty)?;
         writer.write_u16(0)?; // Star rating is never used
-        writer.write_bool(!map.audio.is_empty())?;
+        writer.write_bool(map.audio.is_some())?;
         writer.write_bool(!map.cover.is_empty())?;
         writer.write_bool(false)?;
 
@@ -125,7 +125,9 @@ impl MapSerializer for SSPMSerializer {
         }
 
         let audio_offset = writer.stream_position()?;
-        writer.write_all(&map.audio)?;
+        if let Some(audio) = &map.audio {
+            writer.write_all(&audio.bytes)?;
+        }
         let audio_length = writer.stream_position()? - audio_offset;
 
         let mut cover_offset = 0;
@@ -320,6 +322,13 @@ impl MapSerializer for SSPMSerializer {
             }
         }
 
+        let audio_source = match audio_buf.is_empty() {
+            true => None,
+            false => Some(AudioSource {
+                bytes: audio_buf.into(),
+            }),
+        };
+
         Ok(Map {
             id: map_id,
             length: millisecond,
@@ -328,7 +337,7 @@ impl MapSerializer for SSPMSerializer {
             difficulty: 0,
             difficulty_name: String::new(),
             mappers,
-            audio: audio_buf,
+            audio: audio_source,
             cover: cover_buf,
             notes,
             objects,
@@ -564,6 +573,13 @@ impl MapSerializer for PHXMParser {
             }
         }
 
+        let audio_source = match audio_buf.is_empty() {
+            true => None,
+            false => Some(AudioSource {
+                bytes: audio_buf.clone().into(),
+            }),
+        };
+
         Ok(Map {
             id: metadata.id,
             length: notes.last().map_or(0, |n| n.millisecond),
@@ -572,7 +588,7 @@ impl MapSerializer for PHXMParser {
             difficulty: metadata.difficulty,
             difficulty_name: metadata.difficulty_name,
             mappers: metadata.mappers,
-            audio: audio_buf,
+            audio: audio_source,
             cover: cover_buf,
             notes: notes,
             objects: vec![],

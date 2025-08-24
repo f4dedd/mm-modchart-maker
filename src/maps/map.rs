@@ -29,7 +29,7 @@ pub struct Map {
     pub difficulty: u8,
     pub difficulty_name: String,
     pub mappers: Vec<String>,
-    pub audio: Vec<u8>,
+    pub audio: Option<AudioSource>,
     pub cover: Vec<u8>,
     pub notes: Vec<Note>,
     pub objects: Vec<ObjectDefinition>,

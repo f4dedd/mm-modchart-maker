@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use std;
 
-mod io;
 mod jukebox;
 mod maps;
 mod player;
@@ -15,7 +14,6 @@ fn main() -> std::io::Result<()> {
         .add_plugins(maps::MapPlugin)
         .add_plugins(player::PlayerPlugin)
         .add_systems(Startup, load_assets)
-        .add_systems(FixedPostUpdate, get_maps)
         .run();
 
     Ok(())

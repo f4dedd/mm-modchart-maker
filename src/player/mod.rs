@@ -1,5 +1,11 @@
 use bevy::prelude::*;
 
+mod game;
+mod mods;
+
+use game::*;
+use mods::*;
+
 #[derive(States, PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub enum SimulationState {
     #[default]
