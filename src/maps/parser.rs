@@ -424,8 +424,8 @@ impl SSPMSerializer {
                 pos.y = parser.read_f32()?;
             }
             false => {
-                pos.x = parser.read_u8()? as f32;
-                pos.y = parser.read_u8()? as f32;
+                pos.x = (parser.read_u8()? - 2) as f32;
+                pos.y = (parser.read_u8()? - 2) as f32;
             }
         };
 
@@ -485,10 +485,7 @@ struct PHXMMetadata {
 
 impl MapSerializer for PHXMParser {
     fn serialize(_map: &Map, _path: PathBuf) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Not implemented",
-        ))
+        todo!()
     }
 
     fn deserialize(path: PathBuf) -> io::Result<Map> {
