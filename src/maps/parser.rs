@@ -7,8 +7,8 @@ use std::{
 
 use bevy::math::{Vec2, Vec3};
 
-use crate::maps::parser::io::{BinaryReader, BinaryWriter};
-use crate::maps::{map::Map, objects::note::Note};
+use crate::maps::io::{BinaryReader, BinaryWriter};
+use crate::maps::{Map, objects::Note};
 
 pub trait MapSerializer {
     fn deserialize(path: PathBuf) -> io::Result<Map>;
@@ -43,6 +43,7 @@ pub enum ObjectType {
     LongString(Option<String>),
     I64(Option<i64>),
     Vec3(Option<Vec3>),
+    Vec(Option<Vec<ObjectType>>),
 }
 
 pub struct SSPMParser;
@@ -90,7 +91,7 @@ impl MapSerializer for SSPMParser {
         }
 
         let _hash = parser.read_sha1()?; // SHA1 hash of the file
-        let _millisecond = parser.read_u32()?; // Last object millisecond
+        let millisecond = parser.read_u32()?; // Last object millisecond
         let _note_count = parser.read_u32()?; // Note object count
         let _object_count = parser.read_u32()?; // Total object count ( including notes )
         let _difficulty = parser.read_u8()?;
@@ -111,7 +112,7 @@ impl MapSerializer for SSPMParser {
         let object_data_offset = parser.read_u64()?; // Offset of object data
         let object_data_length = parser.read_u64()?; // Length of object data
 
-        let _map_id = parser.read_string()?; // Id of the map
+        let map_id = parser.read_string()?; // Id of the map
         let _map_name = parser.read_string()?; // Name of the map
         let song_name = parser.read_string()?; // Song name
         let mappers_count = parser.read_u16()?; // Mappers count
@@ -119,6 +120,18 @@ impl MapSerializer for SSPMParser {
 
         for _ in 0..mappers_count {
             mappers.push(parser.read_string()?);
+        }
+
+        let custom_data_fields = parser.read_u16()?;
+
+        let mut custom_data = HashMap::<String, ObjectType>::new();
+
+        for _ in 0..custom_data_fields {
+            let name = parser.read_string()?;
+            let data_type = ObjectType::from_sspm(parser.read_u8()?)?;
+            let value = SSPMParser::parse_types(&data_type, &mut parser)?;
+
+            custom_data.insert(name, value);
         }
 
         let mut audio_buf = vec![0u8; audio_data_length as usize];
@@ -170,7 +183,7 @@ impl MapSerializer for SSPMParser {
         let object_section_end = parser.stream_position()? + object_data_length;
 
         let mut notes = Vec::<Note>::new();
-        let mut undefined_objects = Vec::<ObjectDefinition>::new();
+        let mut objects = Vec::<ObjectDefinition>::new();
 
         while parser.stream_position()? < object_section_end {
             let ms = parser.read_u32()?;
@@ -181,18 +194,20 @@ impl MapSerializer for SSPMParser {
 
             match object.name.as_str() {
                 "ssp_note" => notes.push(Note::from_definition(object)?),
-                _ => undefined_objects.push(object),
+                _ => objects.push(object),
             }
         }
 
         Ok(Map {
+            id: map_id,
+            length: millisecond,
             title: song_name,
             artists: vec![],
             mappers,
             audio: audio_buf,
             cover: cover_buf,
-            notes: notes,
-            objects: undefined_objects,
+            notes,
+            objects,
         })
     }
 }
@@ -227,6 +242,26 @@ impl SSPMParser {
             millisecond: ms,
             definitions: object_types,
         })
+    }
+
+    fn parse_types<T: Read + Seek>(
+        object_type: &ObjectType,
+        parser: &mut BinaryReader<T>,
+    ) -> io::Result<ObjectType> {
+        match object_type {
+            ObjectType::U8(_) => Self::parse_u8(parser),
+            ObjectType::U16(_) => Self::parse_u16(parser),
+            ObjectType::U32(_) => Self::parse_u32(parser),
+            ObjectType::U64(_) => Self::parse_u64(parser),
+            ObjectType::F32(_) => Self::parse_f32(parser),
+            ObjectType::F64(_) => Self::parse_f64(parser),
+            ObjectType::Vec2(_) => Self::parse_vec2(parser),
+            ObjectType::Buf(_) => Self::parse_buf(parser),
+            ObjectType::LongBuf(_) => Self::parse_long_buf(parser),
+            ObjectType::String(_) => Self::parse_string(parser),
+            ObjectType::LongString(_) => Self::parse_long_string(parser),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "")),
+        }
     }
 
     fn parse_u8<T: Read + Seek>(parser: &mut BinaryReader<T>) -> io::Result<ObjectType> {
@@ -296,6 +331,13 @@ impl SSPMParser {
     fn parse_long_string<T: Read + Seek>(parser: &mut BinaryReader<T>) -> io::Result<ObjectType> {
         Ok(ObjectType::LongString(Some(parser.read_long_string()?)))
     }
+
+    fn parse_vec<T: Read + Seek>(_parser: &mut BinaryReader<T>) -> io::Result<ObjectType> {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Not implemented",
+        ))
+    }
 }
 
 impl ObjectType {
@@ -312,6 +354,7 @@ impl ObjectType {
             0x09 => Ok(ObjectType::String(None)),
             0x0A => Ok(ObjectType::LongBuf(None)),
             0x0B => Ok(ObjectType::LongString(None)),
+            0x0C => Ok(ObjectType::Vec(None)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "")),
         }
     }

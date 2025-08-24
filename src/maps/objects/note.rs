@@ -4,7 +4,7 @@ use bevy::math::Vec2;
 
 use crate::maps::{
     objects::MapObject,
-    parser::map::{ObjectDefinition, ObjectParser, ObjectType},
+    parser::{ObjectDefinition, ObjectParser, ObjectType},
 };
 
 #[derive(Debug)]
