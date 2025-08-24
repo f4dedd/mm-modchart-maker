@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, Cursor, Read, Seek, SeekFrom},
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
@@ -9,16 +9,19 @@ use bevy::math::{Vec2, Vec3, ops::round};
 use serde::{Deserialize, Serialize};
 use zip::unstable::stream::ZipStreamReader;
 
-use crate::maps::io::{BinaryReader, BinaryWriter};
 use crate::maps::{Map, objects::Note};
+use crate::maps::{
+    MapFormat,
+    io::{BinaryReader, BinaryWriter},
+};
 
 pub struct SSPMSerializer;
 
 pub struct PHXMParser;
 
 pub trait MapSerializer {
-    fn deserialize(path: PathBuf) -> io::Result<Map>;
-    fn serialize(map: &Map, path: PathBuf) -> io::Result<()>;
+    fn deserialize<T: Read + Seek>(reader: T) -> io::Result<Map>;
+    fn serialize<T: Write + Seek>(map: &Map, writer: T) -> io::Result<()>;
 }
 
 pub trait ObjectParser {
@@ -73,9 +76,8 @@ impl ObjectType {
 }
 
 impl MapSerializer for SSPMSerializer {
-    fn serialize(map: &Map, path: PathBuf) -> io::Result<()> {
-        let file = File::create(path)?;
-        let mut writer = BinaryWriter::new(file);
+    fn serialize<T: Write + Seek>(map: &Map, writer: T) -> io::Result<()> {
+        let mut writer = BinaryWriter::new(writer);
 
         // Header
         writer.write_all(b"SS+m")?; // File signature
@@ -181,15 +183,15 @@ impl MapSerializer for SSPMSerializer {
         Ok(())
     }
 
-    fn deserialize(path: PathBuf) -> io::Result<Map> {
-        let mut parser = BinaryReader::new(File::open(path)?);
+    fn deserialize<T: Read + Seek>(reader: T) -> io::Result<Map> {
+        let mut reader = BinaryReader::new(reader);
 
         // Header structure:
         // The first 4 bytes are the file signature "SS+m"
         // The next 2 bytes are the version of the sspm (currently only version 2 is supported)
         // The rest of the header is unused
         let mut header = [0u8; 10];
-        parser.read_exact(&mut header)?;
+        reader.read_exact(&mut header)?;
 
         // Header signature must be "SS+m"
         if header[0..4] != [0x53, 0x53, 0x2B, 0x6D] {
@@ -207,46 +209,46 @@ impl MapSerializer for SSPMSerializer {
             ));
         }
 
-        let _hash = parser.read_sha1()?; // SHA1 hash of the file
-        let millisecond = parser.read_u32()?; // Last object millisecond
-        let _note_count = parser.read_u32()?; // Note object count
-        let _object_count = parser.read_u32()?; // Total object count ( including notes )
+        let _hash = reader.read_sha1()?; // SHA1 hash of the file
+        let millisecond = reader.read_u32()?; // Last object millisecond
+        let _note_count = reader.read_u32()?; // Note object count
+        let _object_count = reader.read_u32()?; // Total object count ( including notes )
         //
-        let _difficulty = parser.read_u8()?;
-        let _star_rating = parser.read_u16()?; // never used
-        let has_audio = parser.read_bool()?; // Whether the map has audio data
-        let has_cover = parser.read_bool()?; // Whether the map has cover data
-        let _has_mod = parser.read_bool()?; // never used
+        let _difficulty = reader.read_u8()?;
+        let _star_rating = reader.read_u16()?; // never used
+        let has_audio = reader.read_bool()?; // Whether the map has audio data
+        let has_cover = reader.read_bool()?; // Whether the map has cover data
+        let _has_mod = reader.read_bool()?; // never used
 
-        let _custom_data_offset = parser.read_u64()?; // never used
-        let _custom_data_length = parser.read_u64()?; // never used
-        let audio_data_offset = parser.read_u64()?; // Length of audio data
-        let audio_data_length = parser.read_u64()?; // Offset of audio data
-        let cover_data_offset = parser.read_u64()?; // Length of cover data
-        let cover_data_length = parser.read_u64()?; // Offset of cover data
-        let object_definition_offset = parser.read_u64()?; // Offset of object definitions
-        let _object_definition_length = parser.read_u64()?; // Length of object definitions
-        let object_data_offset = parser.read_u64()?; // Offset of object data
-        let object_data_length = parser.read_u64()?; // Length of object data
+        let _custom_data_offset = reader.read_u64()?; // never used
+        let _custom_data_length = reader.read_u64()?; // never used
+        let audio_data_offset = reader.read_u64()?; // Length of audio data
+        let audio_data_length = reader.read_u64()?; // Offset of audio data
+        let cover_data_offset = reader.read_u64()?; // Length of cover data
+        let cover_data_length = reader.read_u64()?; // Offset of cover data
+        let object_definition_offset = reader.read_u64()?; // Offset of object definitions
+        let _object_definition_length = reader.read_u64()?; // Length of object definitions
+        let object_data_offset = reader.read_u64()?; // Offset of object data
+        let object_data_length = reader.read_u64()?; // Length of object data
 
-        let map_id = parser.read_string()?; // Id of the map
-        let _map_name = parser.read_string()?; // Name of the map
-        let song_name = parser.read_string()?; // Song name
-        let mappers_count = parser.read_u16()?; // Mappers count
+        let map_id = reader.read_string()?; // Id of the map
+        let _map_name = reader.read_string()?; // Name of the map
+        let song_name = reader.read_string()?; // Song name
+        let mappers_count = reader.read_u16()?; // Mappers count
         let mut mappers = Vec::<String>::new();
 
         for _ in 0..mappers_count {
-            mappers.push(parser.read_string()?);
+            mappers.push(reader.read_string()?);
         }
 
-        let custom_data_fields = parser.read_u16()?;
+        let custom_data_fields = reader.read_u16()?;
 
         let mut custom_data = HashMap::<String, ObjectType>::new();
 
         for _ in 0..custom_data_fields {
-            let name = parser.read_string()?;
-            let data_type = ObjectType::from_sspm(parser.read_u8()?)?;
-            let value = SSPMSerializer::parse_types(&data_type, &mut parser)?;
+            let name = reader.read_string()?;
+            let data_type = ObjectType::from_sspm(reader.read_u8()?)?;
+            let value = SSPMSerializer::parse_types(&data_type, &mut reader)?;
 
             custom_data.insert(name, value);
         }
@@ -255,36 +257,36 @@ impl MapSerializer for SSPMSerializer {
         let mut cover_buf = vec![0u8; cover_data_length as usize];
 
         if has_audio {
-            parser.seek(io::SeekFrom::Start(audio_data_offset))?;
-            parser.read_exact(&mut audio_buf)?;
+            reader.seek(io::SeekFrom::Start(audio_data_offset))?;
+            reader.read_exact(&mut audio_buf)?;
         }
 
         if has_cover {
-            parser.seek(io::SeekFrom::Start(cover_data_offset))?;
-            parser.read_exact(&mut cover_buf)?;
+            reader.seek(io::SeekFrom::Start(cover_data_offset))?;
+            reader.read_exact(&mut cover_buf)?;
         }
 
         let mut object_definitions = HashMap::<u8, ObjectDefinition>::new();
 
-        parser.seek(io::SeekFrom::Start(object_definition_offset))?;
+        reader.seek(io::SeekFrom::Start(object_definition_offset))?;
 
-        let object_count = parser.read_u8()?;
+        let object_count = reader.read_u8()?;
 
         for count in 0..object_count {
-            let name = parser.read_string()?;
-            let values = parser.read_u8()?;
+            let name = reader.read_string()?;
+            let values = reader.read_u8()?;
 
             let mut definitions = Vec::<ObjectType>::new();
 
             for _ in 0..values {
-                let obj_type = parser.read_u8()?;
+                let obj_type = reader.read_u8()?;
                 let data = ObjectType::from_sspm(obj_type)?;
 
                 definitions.push(data);
             }
 
             // There should be an empty byte after each object definition
-            assert_eq!(parser.read_u8()?, 0x00);
+            assert_eq!(reader.read_u8()?, 0x00);
 
             object_definitions.insert(
                 count,
@@ -296,20 +298,20 @@ impl MapSerializer for SSPMSerializer {
             );
         }
 
-        parser.seek(io::SeekFrom::Start(object_data_offset))?;
-        let object_section_end = parser.stream_position()? + object_data_length;
+        reader.seek(io::SeekFrom::Start(object_data_offset))?;
+        let object_section_end = reader.stream_position()? + object_data_length;
 
         let mut notes = Vec::<Note>::new();
         let mut objects = Vec::<ObjectDefinition>::new();
 
-        while parser.stream_position()? < object_section_end {
-            let ms = parser.read_u32()?;
-            let definition = parser.read_u8()?;
+        while reader.stream_position()? < object_section_end {
+            let ms = reader.read_u32()?;
+            let definition = reader.read_u8()?;
 
             let object = SSPMSerializer::parse_definitions(
                 &object_definitions[&definition],
                 ms,
-                &mut parser,
+                &mut reader,
             )?;
 
             match object.name.as_str() {
@@ -330,6 +332,7 @@ impl MapSerializer for SSPMSerializer {
             cover: cover_buf,
             notes,
             objects,
+            format: MapFormat::SSPM,
         })
     }
 }
@@ -424,8 +427,8 @@ impl SSPMSerializer {
                 pos.y = parser.read_f32()?;
             }
             false => {
-                pos.x = (parser.read_u8()? - 2) as f32;
-                pos.y = (parser.read_u8()? - 2) as f32;
+                pos.x = (parser.read_u8()? as f32) - 2.0;
+                pos.y = (parser.read_u8()? as f32) - 2.0;
             }
         };
 
@@ -484,12 +487,11 @@ struct PHXMMetadata {
 }
 
 impl MapSerializer for PHXMParser {
-    fn serialize(_map: &Map, _path: PathBuf) -> io::Result<()> {
+    fn serialize<T: Write + Seek>(_map: &Map, _writer: T) -> io::Result<()> {
         todo!()
     }
 
-    fn deserialize(path: PathBuf) -> io::Result<Map> {
-        let reader = File::open(path)?;
+    fn deserialize<T: Read + Seek>(reader: T) -> io::Result<Map> {
         let mut folder = zip::ZipArchive::new(reader)?;
         let mut parser: BinaryReader<Cursor<Vec<u8>>>;
 
@@ -574,6 +576,7 @@ impl MapSerializer for PHXMParser {
             cover: cover_buf,
             notes: notes,
             objects: vec![],
+            format: MapFormat::PHXM,
         })
     }
 }

@@ -1,3 +1,5 @@
+use bevy::prelude::*;
+
 use crate::maps::objects::note::Note;
 
 use super::parser::ObjectDefinition;
@@ -13,6 +15,12 @@ pub trait MapMeta {
 }
 
 #[derive(Debug)]
+pub enum MapFormat {
+    SSPM,
+    PHXM,
+}
+
+#[derive(Debug, TypePath, Asset)]
 pub struct Map {
     pub id: String,
     pub length: u32,
@@ -25,6 +33,7 @@ pub struct Map {
     pub cover: Vec<u8>,
     pub notes: Vec<Note>,
     pub objects: Vec<ObjectDefinition>,
+    pub format: MapFormat,
 }
 
 pub struct PartialMap {
