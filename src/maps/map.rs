@@ -5,6 +5,7 @@ use super::parser::ObjectDefinition;
 pub trait MapInfo {}
 
 pub trait MapMeta {
+    fn get_id(&self) -> String;
     fn get_title(&self) -> String;
     fn get_mappers(&self) -> Vec<String>;
     fn get_artists(&self) -> Vec<String>;
@@ -31,6 +32,10 @@ pub struct PartialMap {
 }
 
 impl MapMeta for Map {
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
     fn get_title(&self) -> String {
         self.title.clone()
     }

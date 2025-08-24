@@ -10,6 +10,10 @@ use bevy::math::{Vec2, Vec3};
 use crate::maps::io::{BinaryReader, BinaryWriter};
 use crate::maps::{Map, objects::Note};
 
+pub struct SSPMParser;
+
+pub struct PHXMParser;
+
 pub trait MapSerializer {
     fn deserialize(path: PathBuf) -> io::Result<Map>;
     fn serialize(map: &Map, path: PathBuf) -> io::Result<()>;
@@ -46,7 +50,25 @@ pub enum ObjectType {
     Vec(Option<Vec<ObjectType>>),
 }
 
-pub struct SSPMParser;
+impl ObjectType {
+    pub fn from_sspm(value: u8) -> io::Result<ObjectType> {
+        match value {
+            0x01 => Ok(ObjectType::U8(None)),
+            0x02 => Ok(ObjectType::U16(None)),
+            0x03 => Ok(ObjectType::U32(None)),
+            0x04 => Ok(ObjectType::U64(None)),
+            0x05 => Ok(ObjectType::F32(None)),
+            0x06 => Ok(ObjectType::F64(None)),
+            0x07 => Ok(ObjectType::Vec2(None)),
+            0x08 => Ok(ObjectType::Buf(None)),
+            0x09 => Ok(ObjectType::String(None)),
+            0x0A => Ok(ObjectType::LongBuf(None)),
+            0x0B => Ok(ObjectType::LongString(None)),
+            0x0C => Ok(ObjectType::Vec(None)),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "")),
+        }
+    }
+}
 
 impl MapSerializer for SSPMParser {
     fn serialize(map: &Map, path: PathBuf) -> io::Result<()> {
@@ -60,6 +82,9 @@ impl MapSerializer for SSPMParser {
 
         // Static Metadata
         writer.write_sha1(&[0u8; 20])?; // SHA1 is never used yet so ignore for now
+        writer.write_u32(map.length)?;
+        writer.write_u32(map.notes.len() as u32)?;
+        writer.write_u32((map.notes.len() + map.objects.len()) as u32)?;
 
         todo!()
     }
@@ -337,25 +362,5 @@ impl SSPMParser {
             io::ErrorKind::InvalidData,
             "Not implemented",
         ))
-    }
-}
-
-impl ObjectType {
-    pub fn from_sspm(value: u8) -> io::Result<ObjectType> {
-        match value {
-            0x01 => Ok(ObjectType::U8(None)),
-            0x02 => Ok(ObjectType::U16(None)),
-            0x03 => Ok(ObjectType::U32(None)),
-            0x04 => Ok(ObjectType::U64(None)),
-            0x05 => Ok(ObjectType::F32(None)),
-            0x06 => Ok(ObjectType::F64(None)),
-            0x07 => Ok(ObjectType::Vec2(None)),
-            0x08 => Ok(ObjectType::Buf(None)),
-            0x09 => Ok(ObjectType::String(None)),
-            0x0A => Ok(ObjectType::LongBuf(None)),
-            0x0B => Ok(ObjectType::LongString(None)),
-            0x0C => Ok(ObjectType::Vec(None)),
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "")),
-        }
     }
 }
