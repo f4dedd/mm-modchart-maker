@@ -6,7 +6,7 @@ pub struct BinaryReader<T: Read + Seek> {
     reader: T,
 }
 
-pub struct BinaryWriter<T: Write> {
+pub struct BinaryWriter<T: Write + Seek> {
     writer: T,
 }
 
@@ -66,9 +66,8 @@ impl<T: Seek + Read> BinaryReader<T> {
     }
 
     pub fn read_string(&mut self) -> io::Result<String> {
-        let mut buf = [0u8; 2];
-        self.reader.read_exact(&mut buf)?;
-        let mut buffer = vec![0u8; u16::from_le_bytes(buf) as usize];
+        let buf = self.read_u16()?;
+        let mut buffer = vec![0u8; buf as usize];
         self.reader.read_exact(&mut buffer)?;
 
         let str = String::from_utf8(buffer);
@@ -83,9 +82,8 @@ impl<T: Seek + Read> BinaryReader<T> {
     }
 
     pub fn read_long_string(&mut self) -> io::Result<String> {
-        let mut buf = [0u8; 4];
-        self.reader.read_exact(&mut buf)?;
-        let mut buffer = vec![0u8; u32::from_le_bytes(buf) as usize];
+        let buf = self.read_u32()?;
+        let mut buffer = vec![0u8; buf as usize];
         self.reader.read_exact(&mut buffer)?;
 
         let str = String::from_utf8(buffer);
@@ -148,7 +146,7 @@ impl<T: Seek + Read> BinaryReader<T> {
     }
 }
 
-impl<T: Write> BinaryWriter<T> {
+impl<T: Write + Seek> BinaryWriter<T> {
     pub fn new(writer: T) -> Self {
         Self { writer }
     }
@@ -200,5 +198,13 @@ impl<T: Write> BinaryWriter<T> {
 
     pub fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
         self.writer.write_all(buf)
+    }
+
+    pub fn stream_position(&mut self) -> io::Result<u64> {
+        self.writer.stream_position()
+    }
+
+    pub fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.writer.seek(pos)
     }
 }

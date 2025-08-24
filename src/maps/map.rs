@@ -18,6 +18,8 @@ pub struct Map {
     pub length: u32,
     pub title: String,
     pub artists: Vec<String>,
+    pub difficulty: u8,
+    pub difficulty_name: String,
     pub mappers: Vec<String>,
     pub audio: Vec<u8>,
     pub cover: Vec<u8>,

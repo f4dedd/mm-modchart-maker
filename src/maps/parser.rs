@@ -1,16 +1,18 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, Read, Seek},
+    io::{self, Cursor, Read, Seek, SeekFrom},
     path::PathBuf,
 };
 
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{Vec2, Vec3, ops::round};
+use serde::{Deserialize, Serialize};
+use zip::unstable::stream::ZipStreamReader;
 
 use crate::maps::io::{BinaryReader, BinaryWriter};
 use crate::maps::{Map, objects::Note};
 
-pub struct SSPMParser;
+pub struct SSPMSerializer;
 
 pub struct PHXMParser;
 
@@ -70,7 +72,7 @@ impl ObjectType {
     }
 }
 
-impl MapSerializer for SSPMParser {
+impl MapSerializer for SSPMSerializer {
     fn serialize(map: &Map, path: PathBuf) -> io::Result<()> {
         let file = File::create(path)?;
         let mut writer = BinaryWriter::new(file);
@@ -86,7 +88,97 @@ impl MapSerializer for SSPMParser {
         writer.write_u32(map.notes.len() as u32)?;
         writer.write_u32((map.notes.len() + map.objects.len()) as u32)?;
 
-        todo!()
+        writer.write_u8(map.difficulty)?;
+        writer.write_u16(0)?; // Star rating is never used
+        writer.write_bool(!map.audio.is_empty())?;
+        writer.write_bool(!map.cover.is_empty())?;
+        writer.write_bool(false)?;
+
+        let data_offset = writer.stream_position()?;
+        writer.write_all(&[0u8; 80])?; // Placeholder for data offsets and lengths
+
+        writer.write_string(&map.id)?;
+        writer.write_string(&map.title)?;
+        writer.write_string(&map.title)?; // Song name is the same as title for now
+
+        writer.write_u16(map.mappers.len() as u16)?;
+        for mapper in map.mappers.iter() {
+            writer.write_string(mapper)?;
+        }
+
+        let mut custom_data_offset: u64 = 0;
+        let mut custom_data_length: u64 = 0;
+
+        if !map.difficulty_name.is_empty() {
+            custom_data_offset = writer.stream_position()?;
+
+            writer.write_u16(1)?; // One custom data field
+            writer.write_string("difficulty_name")?;
+            writer.write_u8(0x09)?; // String type
+            writer.write_string(&map.difficulty_name)?;
+
+            custom_data_length = writer.stream_position()? - custom_data_offset;
+        } else {
+            writer.write_u16(0)?; // zero custom data fields
+        }
+
+        let audio_offset = writer.stream_position()?;
+        writer.write_all(&map.audio)?;
+        let audio_length = writer.stream_position()? - audio_offset;
+
+        let mut cover_offset = 0;
+        let mut cover_length = 0;
+
+        if !map.cover.is_empty() {
+            cover_offset = writer.stream_position()?;
+            writer.write_all(&map.cover)?;
+            cover_length = writer.stream_position()? - cover_offset;
+        }
+
+        let object_definition_offset = writer.stream_position()?;
+        writer.write_u8(1)?;
+        writer.write_string("ssp_note")?;
+        writer.write_all(&[0x01, 0x07, 0x00])?; // One definition of type Vec2
+        let object_definition_length = writer.stream_position()? - object_definition_offset;
+
+        let object_data_offset = writer.stream_position()?;
+
+        for note in map.notes.iter() {
+            writer.write_u32(note.millisecond)?;
+            writer.write_u8(0x00)?;
+
+            let quantum = round(note.position.x) != round_to_places(note.position.x, 2)
+                || round(note.position.y) != round_to_places(note.position.y, 2);
+
+            writer.write_bool(quantum)?;
+
+            if quantum {
+                writer.write_f32(note.position.x)?;
+                writer.write_f32(note.position.y)?;
+            } else {
+                writer.write_u8(note.position.x as u8 + 1)?;
+                writer.write_u8(note.position.y as u8 + 1)?;
+            }
+        }
+
+        let object_data_length = writer.stream_position()? - object_data_offset;
+
+        writer.seek(SeekFrom::Start(data_offset))?;
+        writer.write_u64(custom_data_offset)?;
+        writer.write_u64(custom_data_length)?;
+        writer.write_u64(audio_offset)?;
+        writer.write_u64(audio_length)?;
+        writer.write_u64(cover_offset)?;
+        writer.write_u64(cover_length)?;
+        writer.write_u64(object_definition_offset)?;
+        writer.write_u64(object_definition_length)?;
+        writer.write_u64(object_data_offset)?;
+        writer.write_u64(object_data_length)?;
+
+        writer.seek(SeekFrom::End(0))?;
+        writer.write_string(format!("MM Export - {}", "0.0.1").as_str())?;
+
+        Ok(())
     }
 
     fn deserialize(path: PathBuf) -> io::Result<Map> {
@@ -119,19 +211,19 @@ impl MapSerializer for SSPMParser {
         let millisecond = parser.read_u32()?; // Last object millisecond
         let _note_count = parser.read_u32()?; // Note object count
         let _object_count = parser.read_u32()?; // Total object count ( including notes )
+        //
         let _difficulty = parser.read_u8()?;
         let _star_rating = parser.read_u16()?; // never used
-
         let has_audio = parser.read_bool()?; // Whether the map has audio data
         let has_cover = parser.read_bool()?; // Whether the map has cover data
         let _has_mod = parser.read_bool()?; // never used
 
-        let _custom_data_length = parser.read_u64()?; // never used
         let _custom_data_offset = parser.read_u64()?; // never used
-        let audio_data_length = parser.read_u64()?; // Length of audio data
-        let audio_data_offset = parser.read_u64()?; // Offset of audio data
-        let cover_data_length = parser.read_u64()?; // Length of cover data
-        let cover_data_offset = parser.read_u64()?; // Offset of cover data
+        let _custom_data_length = parser.read_u64()?; // never used
+        let audio_data_offset = parser.read_u64()?; // Length of audio data
+        let audio_data_length = parser.read_u64()?; // Offset of audio data
+        let cover_data_offset = parser.read_u64()?; // Length of cover data
+        let cover_data_length = parser.read_u64()?; // Offset of cover data
         let object_definition_offset = parser.read_u64()?; // Offset of object definitions
         let _object_definition_length = parser.read_u64()?; // Length of object definitions
         let object_data_offset = parser.read_u64()?; // Offset of object data
@@ -154,7 +246,7 @@ impl MapSerializer for SSPMParser {
         for _ in 0..custom_data_fields {
             let name = parser.read_string()?;
             let data_type = ObjectType::from_sspm(parser.read_u8()?)?;
-            let value = SSPMParser::parse_types(&data_type, &mut parser)?;
+            let value = SSPMSerializer::parse_types(&data_type, &mut parser)?;
 
             custom_data.insert(name, value);
         }
@@ -214,8 +306,11 @@ impl MapSerializer for SSPMParser {
             let ms = parser.read_u32()?;
             let definition = parser.read_u8()?;
 
-            let object =
-                SSPMParser::parse_definitions(&object_definitions[&definition], ms, &mut parser)?;
+            let object = SSPMSerializer::parse_definitions(
+                &object_definitions[&definition],
+                ms,
+                &mut parser,
+            )?;
 
             match object.name.as_str() {
                 "ssp_note" => notes.push(Note::from_definition(object)?),
@@ -228,6 +323,8 @@ impl MapSerializer for SSPMParser {
             length: millisecond,
             title: song_name,
             artists: vec![],
+            difficulty: 0,
+            difficulty_name: String::new(),
             mappers,
             audio: audio_buf,
             cover: cover_buf,
@@ -236,8 +333,12 @@ impl MapSerializer for SSPMParser {
         })
     }
 }
+fn round_to_places(value: f32, places: u32) -> f32 {
+    let factor = 10f32.powi(places as i32);
+    (value * factor).round() / factor
+}
 
-impl SSPMParser {
+impl SSPMSerializer {
     fn parse_definitions<T: Read + Seek>(
         marker_definition: &ObjectDefinition,
         ms: u32,
@@ -362,5 +463,120 @@ impl SSPMParser {
             io::ErrorKind::InvalidData,
             "Not implemented",
         ))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct PHXMMetadata {
+    #[serde(rename = "ID")]
+    id: String,
+    has_audio: bool,
+    has_cover: bool,
+    has_video: bool,
+    audio_extension: String,
+    artist: String,
+    title: String,
+    mappers: Vec<String>,
+    difficulty: u8,
+    difficulty_name: String,
+    notes_count: u32,
+}
+
+impl MapSerializer for PHXMParser {
+    fn serialize(_map: &Map, _path: PathBuf) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Not implemented",
+        ))
+    }
+
+    fn deserialize(path: PathBuf) -> io::Result<Map> {
+        let reader = File::open(path)?;
+        let mut folder = zip::ZipArchive::new(reader)?;
+        let mut parser: BinaryReader<Cursor<Vec<u8>>>;
+
+        let mut audio_buf = Vec::<u8>::new();
+        let mut cover_buf = Vec::<u8>::new();
+        let mut video_buf = Vec::<u8>::new();
+        let metadata: PHXMMetadata;
+        let mut notes: Vec<Note>;
+
+        {
+            let mut file = folder.by_name("metadata.json")?;
+            let mut buf = String::new();
+            file.read_to_string(&mut buf)?;
+
+            metadata = serde_json::from_str(&buf)?;
+        }
+
+        {
+            let mut file = folder.by_name("objects.phxmo")?;
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf)?;
+
+            let mut cursor = Cursor::new(buf);
+            cursor.seek(SeekFrom::Start(0))?;
+            parser = BinaryReader::new(cursor);
+        }
+
+        if metadata.has_audio {
+            folder
+                .by_name(format!("audio.{}", metadata.audio_extension).as_str())?
+                .read_to_end(&mut audio_buf)?;
+        }
+
+        if metadata.has_cover {
+            folder.by_name("cover.png")?.read_to_end(&mut cover_buf)?;
+        }
+
+        if metadata.has_video {
+            folder.by_name("video.mp4")?.read_to_end(&mut video_buf)?;
+        }
+
+        let _type_count = parser.read_u32()?;
+        let note_count = parser.read_u32()?;
+
+        notes = Vec::new();
+
+        for _ in 0..note_count {
+            let millisecond = parser.read_u32()?;
+            let quantum = parser.read_bool()?;
+
+            match quantum {
+                true => {
+                    let x = parser.read_f32()?;
+                    let y = parser.read_f32()?;
+
+                    notes.push(Note {
+                        millisecond,
+                        position: Vec2::new(x, y),
+                    });
+                }
+                false => {
+                    let x = (parser.read_u8()? - 1) as f32;
+                    let y = (parser.read_u8()? - 1) as f32;
+
+                    notes.push(Note {
+                        millisecond,
+                        position: Vec2::new(x, y),
+                    });
+                }
+            }
+        }
+
+        Ok(Map {
+            id: metadata.id,
+            length: notes.last().map_or(0, |n| n.millisecond),
+            title: metadata.title,
+            artists: vec![metadata.artist],
+            difficulty: metadata.difficulty,
+            difficulty_name: metadata.difficulty_name,
+            mappers: metadata.mappers,
+            audio: audio_buf,
+            cover: cover_buf,
+            notes: notes,
+            objects: vec![],
+        })
     }
 }
